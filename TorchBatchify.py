@@ -4,16 +4,18 @@ from collections.abc import Iterable
 from torch.cuda.amp import autocast
 from torch._utils import ExceptionWrapper
 from typing import Union
+import tqdm
 
 
 class Batchifier(object):
-    def __init__(self, batch_size: int, batch_args: Union[str, list, tuple], target_dims: Union[int, list, tuple, None] = None, remain_dims: Union[int, list, tuple, None] = None):
+    def __init__(self, batch_size: int, batch_args: Union[str, list, tuple], target_dims: Union[int, list, tuple, None] = None, remain_dims: Union[int, list, tuple, None] = None, tbar = False):
         """
         Automatically batchify a process. remain_dims must be placed at start and end of the shape.
         :param batch_size: batch size
         :param batch_args: name of args to batchify
         :param target_dims: the raveled dims
         :param remain_dims: the unraveled dims
+        :param tbar: show process bar
         """
         if isinstance(batch_args, str):
             batch_args = (batch_args, )
@@ -31,6 +33,7 @@ class Batchifier(object):
 
         self.batch_size = batch_size
         self.batch_args = tuple(batch_args)
+        self.tbar = tbar
 
         assert len(self.batch_args) > 0
 
@@ -84,7 +87,11 @@ class Batchifier(object):
             reshape_foo = lambda x_, tar_shape=recorded_shape: x_.view(*tar_shape + x_.shape[save_idx + 1:])
 
             out = []
-            for i in range((total_len - 1) // self.batch_size + 1):
+            if not self.tbar:
+                range_f = range
+            else:
+                range_f = tqdm.trange
+            for i in range_f((total_len - 1) // self.batch_size + 1):
                 this_kwargs = dict()
                 for k in kwargs.keys():
                     this_kwargs[k] = kwargs[k]
@@ -107,7 +114,7 @@ class Batchifier(object):
 
 
 class DataParallelBatchifier(object):
-    def __init__(self, batch_size: int, batch_args: Union[str, list, tuple], target_dims: Union[int, list, tuple, None] = None, remain_dims: Union[int, list, tuple, None] = None, device: torch.device=None):
+    def __init__(self, batch_size: int, batch_args: Union[str, list, tuple], target_dims: Union[int, list, tuple, None] = None, remain_dims: Union[int, list, tuple, None] = None, device: torch.device=None, tbar = False):
         """
         Automatically batchify a process with mutliple GPUs. remain_dims must be placed at start and end of the shape.
         :param batch_size: batch size
@@ -115,6 +122,7 @@ class DataParallelBatchifier(object):
         :param target_dims: the raveled dims
         :param remain_dims: the unraveled dims
         :param device: device to use, use all gpu if None
+        :param tbar: show process bar
         """
         if isinstance(batch_args, str):
             batch_args = (batch_args, )
@@ -140,6 +148,7 @@ class DataParallelBatchifier(object):
 
         self.batch_size = batch_size
         self.batch_args = tuple(batch_args)
+        self.tbar = tbar
 
         assert len(self.batch_args) > 0
 
@@ -214,7 +223,13 @@ class DataParallelBatchifier(object):
             reshape_foo = lambda x_, tar_shape=recorded_shape: x_.view(*tar_shape + x_.shape[save_idx + 1:])
 
             out = []
-            for i in range((total_len - 1) // self.batch_size + 1):
+            
+            if not self.tbar:
+                range_f = range
+            else:
+                range_f = tqdm.trange
+                
+            for i in range_f((total_len - 1) // self.batch_size + 1):
                 sub_batch_size = (self.batch_size - 1) // self.n_gpus + 1 if i != total_len // self.batch_size else (total_len % self.batch_size - 1) // self.n_gpus + 1
 
                 results = dict()
